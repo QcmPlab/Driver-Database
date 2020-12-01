@@ -18,15 +18,8 @@ endef
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC=$(shell pkg-config --cflags dmft_tools scifor)
-GLOB_LIB=$(shell pkg-config --libs   dmft_tools scifor)
-
-LANC_INC=$(shell pkg-config --cflags lanc_ed)
-LANC_LIB=$(shell pkg-config --libs   lanc_ed)
-
-DMFT_INC=$(shell pkg-config --cflags dmft_ed)
-DMFT_LIB=$(shell pkg-config --libs   dmft_ed)
-
+GLOB_INC:=$(shell pkg-config --cflags dmft_ed dmft_tools scifor)
+GLOB_LIB:=$(shell pkg-config --libs   dmft_ed dmft_tools scifor)
 
 ifeq ($(PLAT),intel)
 FFLAG=-O2 -ftz
@@ -52,47 +45,20 @@ VER = 'character(len=41),parameter :: revision = "$(REV)"' > revision.inc
 .SUFFIXES: .f90
 
 all: FLAG:=${FFLAG}
-all: MYINC:=$(DMFT_INC) $(GLOB_INC)
-all: MYLIB:=$(DMFT_LIB) $(GLOB_LIB)
 all:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ")
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${MYINC} ${MYLIB}
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 
 debug: FLAG:=${DFLAG}
-debug: MYINC:=$(DMFT_INC) $(GLOB_INC)
-debug: MYLIB:=$(DMFT_LIB) $(GLOB_LIB)
 debug:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ")
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${MYINC} ${MYLIB}
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
-
-
-
-lanc: FLAG:=${FFLAG}
-lanc: MYINC:=$(LANC_INC) $(GLOB_INC)
-lanc: MYLIB:=$(LANC_LIB) $(GLOB_LIB)
-lanc:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${MYINC} ${MYLIB}
-	@echo "Done"
-
-lanc_debug: FLAG:=${DFLAG}
-lanc_debug: MYINC:=$(LANC_INC) $(GLOB_INC)
-lanc_debug: MYLIB:=$(LANC_LIB) $(GLOB_LIB)
-lanc_debug:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${MYINC} ${MYLIB}
-	@echo "Done"
-
 
 clean: 
 	@echo "Cleaning:"
