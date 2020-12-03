@@ -53,13 +53,13 @@ program ed_kanemele
   call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in")
   call parse_input_variable(nk,"NK",finput,default=100)
   call parse_input_variable(nkpath,"NKPATH",finput,default=500)
-  call parse_input_variable(t1,"T1",finput,default=2d0)
-  call parse_input_variable(t2,"T2",finput,default=0d0)
-  call parse_input_variable(phi,"PHI",finput,default=pi/2d0)
-  call parse_input_variable(mh,"MH",finput,default=0d0)
-  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0)
-  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.)
-  call parse_input_variable(neelsym,"NEELSYM",finput,default=.false.)
+  call parse_input_variable(t1,"T1",finput,default=2d0,comment='NN hopping, fixes noninteracting bandwidth')
+  call parse_input_variable(t2,"T2",finput,default=0d0,comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
+  call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
+  call parse_input_variable(mh,"MH",finput,default=0d0, comment='Dirac cone "mass" term, i.e. strenght of the on-site energy staggering. Dafault value is zero, making the two honeycomb orbitals equivalent -> NORB=1')
+  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update). Never use a large value, decrease a lot near transitions.')
+  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='SU(2) constraint. Incompatible with magnetic order. Incompatible with SO interaction. Be careful.')
+  call parse_input_variable(neelsym,"NEELSYM",finput,default=.false.,comment='Refers to AFM ordering; currently has no real consequence on this driver.')
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -71,7 +71,8 @@ program ed_kanemele
 
   if(neelsym.AND.spinsym)stop "Wrong setup from input file: NEELSYM=T not with SPINSYM=T"
 
-  if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb!=1 OR Nspin!=2"
+  if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb=1 AND Nspin=2, no other combination allowed for *genuine* KM model!"
+  ! Constraint to be removed to explore generalizations of the KM hamiltonian (staggered on-site energies...)
   Nlat=2
   Nso=Nspin*Norb
   Nlso=Nlat*Nso                 !=4 = 2(ineq sites)*2(spin)*1(orb)
