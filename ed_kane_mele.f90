@@ -71,7 +71,8 @@ program ed_kanemele
 
   if(neelsym.AND.spinsym)stop "Wrong setup from input file: NEELSYM=T not with SPINSYM=T"
 
-  if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb!=1 OR Nspin!=2"
+  if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb=1 AND Nspin=2, no other combination allowed for *genuine* KM model!"
+  ! Constraint to be removed to explore generalizations of the KM hamiltonian (staggered on-site energies...)
   Nlat=2
   Nso=Nspin*Norb
   Nlso=Nlat*Nso                 !=4 = 2(ineq sites)*2(spin)*1(orb)
