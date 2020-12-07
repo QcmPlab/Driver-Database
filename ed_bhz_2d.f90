@@ -5,32 +5,35 @@ program ed_bhz
   USE MPI
   USE SF_MPI
   implicit none
-  integer                :: iloop,Lk,Nso
-  logical                :: converged
+  integer                                     :: iloop,Lk,Nso
+  logical                                     :: converged
   !Bath:
-  integer                :: Nb
-  real(8),allocatable    :: Bath(:),Bath_(:)
+  integer                                     :: Nb,iorb,jorb
+  real(8),allocatable                         :: Bath(:),Bath_(:)
   !The local hybridization function:
-  complex(8),allocatable :: Delta(:,:,:,:,:)
-  complex(8),allocatable :: Smats(:,:,:,:,:),Sreal(:,:,:,:,:)
-  complex(8),allocatable :: Gmats(:,:,:,:,:),Greal(:,:,:,:,:)
+  complex(8),allocatable                      :: Delta(:,:,:,:,:)
+  complex(8),allocatable                      :: Smats(:,:,:,:,:),Sreal(:,:,:,:,:)
+  complex(8),allocatable                      :: Gmats(:,:,:,:,:),Greal(:,:,:,:,:)
   !hamiltonian input:
-  complex(8),allocatable :: Hk(:,:,:),bhzHloc(:,:),sigmaBHZ(:,:),Zmats(:,:)
-  real(8),allocatable    :: Wtk(:)
-  real(8),allocatable    :: kxgrid(:),kygrid(:)
-  integer,allocatable    :: ik2ix(:),ik2iy(:)
+  complex(8),allocatable                      :: Hk(:,:,:),bhzHloc(:,:),sigmaBHZ(:,:),Zmats(:,:)
+  real(8),allocatable                         :: Wtk(:)
+  real(8),allocatable                         :: kxgrid(:),kygrid(:)
+  integer,allocatable                         :: ik2ix(:),ik2iy(:)
   !variables for the model:
-  integer                :: Nk,Nkpath
-  real(8)                :: mh,lambda,wmixing,akrange,rh
-  character(len=16)      :: finput
-  character(len=32)      :: hkfile
-  logical                :: spinsym,usez
+  integer                                     :: Nk,Nkpath
+  real(8)                                     :: mh,lambda,wmixing,akrange,rh
+  character(len=16)                           :: finput
+  character(len=32)                           :: hkfile
+  logical                                     :: spinsym,usez
   !
-  real(8),dimension(2)   :: Eout
-  real(8),allocatable    :: dens(:)
+  real(8),dimension(2)                        :: Eout
+  real(8),allocatable                         :: dens(:)
+  complex(8),allocatable,dimension(:,:)       :: gamma5,gammaXX,gammaXY
+  real(8),dimension(:),allocatable            :: lambdasym_vector
+  complex(8),dimension(:,:,:,:,:),allocatable :: Hsym_basis
   !MPI Vars:
-  integer                :: irank,comm,rank,size2
-  logical                :: master
+  integer                                     :: irank,comm,rank,size2
+  logical                                     :: master
 
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -75,15 +78,41 @@ program ed_bhz
   allocate(SigmaBHZ(Nso,Nso))
   allocate(Zmats(Nso,Nso))
 
+  allocate(GammaXX(Nso,Nso),GammaXY(Nso,Nso),Gamma5(Nso,Nso))
+  gamma5 =kron_pauli( pauli_sigma_0, pauli_tau_z )
+  gammaXX=kron_pauli( pauli_sigma_x, pauli_tau_x )
+  gammaXY=kron_pauli( pauli_sigma_x, pauli_tau_y )
+
+
   !Buil the Hamiltonian on a grid or on  path
   call set_sigmaBHZ()
   call build_hk(trim(hkfile))
 
   !Setup solver
-  Nb=ed_get_bath_dimension()
-  allocate(Bath(Nb))
-  allocate(Bath_(Nb))
-  call ed_init_solver(comm,bath,Hloc=j2so(bhzHloc))
+  if(bath_type=="replica")then
+     !Setup HLOC symmetries
+     allocate(lambdasym_vector(3))
+     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+     !
+     lambdasym_vector(1)=Mh
+     Hsym_basis(:,:,:,:,1)=j2so(Gamma5)
+     !
+     lambdasym_vector(2)=sb_field
+     Hsym_basis(:,:,:,:,2)=j2so(GammaXX)
+     !
+     lambdasym_vector(3)=sb_field
+     Hsym_basis(:,:,:,:,3)=j2so(GammaXY)
+     call ed_set_Hloc(Hsym_basis,lambdasym_vector)
+     Nb=ed_get_bath_dimension(Hsym_basis)
+     allocate(Bath(Nb))
+     allocate(Bath_(Nb))
+     call ed_init_solver(comm,bath)    
+  else     
+     Nb=ed_get_bath_dimension()
+     allocate(Bath(Nb))
+     allocate(Bath_(Nb))
+     call ed_init_solver(comm,bath,Hloc=j2so(bhzHloc))
+  endif
 
   !DMFT loop
   iloop=0;converged=.false.

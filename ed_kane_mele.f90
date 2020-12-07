@@ -63,11 +63,14 @@ program ed_kanemele
   !
   call ed_read_input(trim(finput),comm)
   !
-  call add_ctrl_var(beta,"BETA")
+  call add_ctrl_var(Norb,"norb")
+  call add_ctrl_var(Nspin,"nspin")
+  call add_ctrl_var(beta,"beta")
   call add_ctrl_var(xmu,"xmu")
-  call add_ctrl_var(wini,"wini")
-  call add_ctrl_var(wfin,"wfin")
+  call add_ctrl_var(wini,'wini')
+  call add_ctrl_var(wfin,'wfin')
   call add_ctrl_var(eps,"eps")
+
 
   if(neelsym.AND.spinsym)stop "Wrong setup from input file: NEELSYM=T not with SPINSYM=T"
 
@@ -118,7 +121,7 @@ program ed_kanemele
 
 
   !Setup solver
-  Nb=get_bath_dimension()
+  Nb=ed_get_bath_dimension()
   allocate(Bath(Nlat,Nb))
   allocate(Bath_prev(Nlat,Nb))
   call ed_init_solver(comm,Bath,Hloc)
@@ -135,14 +138,14 @@ program ed_kanemele
      do ilat=1,Nlat
         call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))
         call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
-        call ed_get_sigma_real(Sreal(ilat,:,:,:,:,:))
+        call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
      enddo
      !
      ! Smats(2,2,2,:,:,:) = -Smats(1,1,1,:,:,:) !sub_B(dw,dw) = -sub_A(up,up)
      ! Smats(2,1,1,:,:,:) = -Smats(1,2,2,:,:,:) !sub_B(up,up) = -sub_A(dw,dw)
      !
      ! compute the local gf:
-     call dmft_gloc_matsubara(comm,Hk,Wtk,Gmats,Smats)
+     call dmft_gloc_matsubara(comm,Hk,Wtk,Gmats,Smats,mpi_split='k')
      if(master)call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4)
      !
      ! compute the Weiss field (only the Nineq ones)
@@ -154,7 +157,7 @@ program ed_kanemele
      !
      !Fit the new bath, starting from the old bath + the supplied Weiss
      call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
-     if(ed_mode=="normal".AND.spinsym)call spin_symmetrize_bath(bath,save=.true.)
+     if(ed_mode=="normal".AND.spinsym)call ed_spin_symmetrize_bath(bath,save=.true.)
      !
      !MIXING:
      if(iloop>1)Bath=wmixing*Bath + (1.d0-wmixing)*Bath_prev
@@ -171,9 +174,13 @@ program ed_kanemele
 
 
   !Extract and print retarded self-energy and Green's function 
-  call dmft_gloc_realaxis(comm,Hk,Wtk,Greal,Sreal)
+  call dmft_gloc_realaxis(comm,Hk,Wtk,Greal,Sreal,mpi_split='k')
   if(master)call dmft_print_gf_realaxis(Greal,"Greal",iprint=4)
 
+
+  call dmft_kinetic_energy(comm,Hk,Wtk,Smats)
+
+  call finalize_MPI()
 
 
 contains
@@ -274,6 +281,49 @@ contains
 
 
 
+  function nnn2nlso_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
+    integer                                               :: Nlat,Nspin,Norb
+    complex(8),dimension(Nlat,Nspin,Nspin,Norb,Norb)      :: Fin
+    complex(8),dimension(Nlat*Nspin*Norb,Nlat*Nspin*Norb) :: Fout
+    integer                                               :: iorb,ispin,ilat,is
+    integer                                               :: jorb,jspin,js
+    Fout=zero
+    do ilat=1,Nlat
+       do ispin=1,Nspin
+          do jspin=1,Nspin
+             do iorb=1,Norb
+                do jorb=1,Norb
+                   is = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin !lattice-spin-orbit stride
+                   js = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin !lattice-spin-orbit stride
+                   Fout(is,js) = Fin(ilat,ispin,jspin,iorb,jorb)
+                enddo
+             enddo
+          enddo
+       enddo
+    enddo
+  end function nnn2nlso_reshape
+
+  function lso2nnn_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
+    integer                                               :: Nlat,Nspin,Norb
+    complex(8),dimension(Nlat*Nspin*Norb,Nlat*Nspin*Norb) :: Fin
+    complex(8),dimension(Nlat,Nspin,Nspin,Norb,Norb)      :: Fout
+    integer                                               :: iorb,ispin,ilat,is
+    integer                                               :: jorb,jspin,js
+    Fout=zero
+    do ilat=1,Nlat
+       do ispin=1,Nspin
+          do jspin=1,Nspin
+             do iorb=1,Norb
+                do jorb=1,Norb
+                   is = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin !lattice-spin-orbit stride
+                   js = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin !lattice-spin-orbit stride
+                   Fout(ilat,ispin,jspin,iorb,jorb) = Fin(is,js)
+                enddo
+             enddo
+          enddo
+       enddo
+    enddo
+  end function lso2nnn_reshape
 
 
 
