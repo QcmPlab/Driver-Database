@@ -8,7 +8,7 @@ program ed_bhz
   integer                                     :: iloop,Lk,Nso
   logical                                     :: converged
   !Bath:
-  integer                                     :: Nb,iorb,jorb
+  integer                                     :: Nb,iorb,jorb,print_mode
   real(8),allocatable                         :: Bath(:),Bath_(:)
   !The local hybridization function:
   complex(8),allocatable                      :: Delta(:,:,:,:,:)
@@ -32,7 +32,7 @@ program ed_bhz
   real(8),dimension(:),allocatable            :: lambdasym_vector
   complex(8),dimension(:,:,:,:,:),allocatable :: Hsym_basis
   !MPI Vars:
-  integer                                     :: irank,comm,rank,size2
+  integer                                     :: irank,comm,rank,size2,ierr
   logical                                     :: master
 
   call init_MPI()
@@ -41,6 +41,7 @@ program ed_bhz
   rank = get_Rank_MPI(comm)
   size2 = get_Size_MPI(comm)
   master = get_Master_MPI(comm)
+
 
   !Parse additional variables && read Input && read H(k)^4x4
   call parse_cmd_variable(finput,"FINPUT",default='inputED_BHZ.in')
@@ -54,7 +55,7 @@ program ed_bhz
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.d0)
   call parse_input_variable(usez,"USEZ",finput,default=.false.)
   !
-  call ed_read_input(trim(finput),MPI_COMM_WORLD)
+  call ed_read_input(trim(finput),comm)
   !
   !Add DMFT CTRL Variables:
   call add_ctrl_var(Norb,"norb")
@@ -88,6 +89,9 @@ program ed_bhz
   call set_sigmaBHZ()
   call build_hk(trim(hkfile))
 
+  print_mode=1
+  if(ed_mode=="nonsu2")print_mode=4
+
   !Setup solver
   if(bath_type=="replica")then
      !Setup HLOC symmetries
@@ -118,20 +122,18 @@ program ed_bhz
   iloop=0;converged=.false.
   do while(.not.converged.AND.iloop<nloop)
      iloop=iloop+1
-     if(master)call start_loop(iloop,nloop,"DMFT-loop")
+     call start_loop(iloop,nloop,"DMFT-loop")
 
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      call ed_solve(comm,bath)
-     !
      call ed_get_sigma_matsubara(Smats)
-     call dmft_gloc_matsubara(comm,Hk,Wtk,Gmats,Smats)
-     if(master)call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
 
-     if(master)then
-        call dmft_self_consistency(Gmats,Smats,Delta,j2so(bhzHloc),cg_scheme)
-        call dmft_print_gf_matsubara(Delta,"Weiss",iprint=1)
-     endif
-     call Bcast_MPI(comm,Delta)
+     call dmft_gloc_matsubara(comm,Hk,Wtk,Gmats,Smats)
+     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=print_mode)
+
+
+     call dmft_self_consistency(comm,Gmats,Smats,Delta,j2so(bhzHloc),cg_scheme)
+     call dmft_print_gf_matsubara(Delta,"Weiss",iprint=print_mode)
 
      !Fit the new bath, starting from the old bath + the supplied delta
      select case(ed_mode)
@@ -152,32 +154,36 @@ program ed_bhz
      if(iloop>1)Bath = wmixing*Bath + (1.d0-wmixing)*Bath_
      Bath_=Bath
      !
-     if(master)then
-        converged = check_convergence(delta(1,1,1,1,:),dmft_error,nsuccess,nloop)
-        call ed_get_dens(dens)
-        if(nread/=0.d0)call ed_search_variable(xmu,sum(dens),converged)
-     endif
-     call Bcast_MPI(comm,bath)
-     call Bcast_MPI(comm,converged)
-     call Bcast_MPI(comm,xmu)
 
-     if(master)call end_loop
+     converged = check_convergence(delta(1,1,1,1,:),dmft_error,nsuccess,nloop)
+
+     call ed_get_dens(dens)
+     if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
+
+     call end_loop
   enddo
+
+
+
+  ! print*,rank,converged
+  ! call Barrier_MPI(comm)
+
 
   call ed_get_sigma_realaxis(Sreal)
   call dmft_gloc_realaxis(comm,Hk,Wtk,Greal,Sreal)
-  if(master)call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
+  call dmft_print_gf_realaxis(Greal,"Gloc",iprint=print_mode)
+
 
   call dmft_kinetic_energy(comm,Hk,Wtk,Smats)
 
   call solve_hk_topological(so2j(Smats(:,:,:,:,1),Nso))
+
 
   call finalize_MPI()
 
 
 
 contains
-
 
 
   !---------------------------------------------------------------------
@@ -227,47 +233,6 @@ contains
 
 
 
-  !---------------------------------------------------------------------
-  !PURPOSE: GET THE BHZ HAMILTONIAN ALONG THE Gamma-X-M-Gamma path
-  !---------------------------------------------------------------------
-  subroutine build_hk_GXMG(kpath_)
-    integer                            :: i,j
-    integer                            :: Npts
-    real(8),dimension(:,:),optional        :: kpath_
-    real(8),dimension(:,:),allocatable :: kpath
-    character(len=64)                      :: file
-    !This routine build the H(k) along the GXMG path in BZ,
-    !Hk(k) is constructed along this path.
-    if(present(kpath_))then
-       if(master)write(LOGfile,*)"Build H(k) BHZ along a given path:"
-       Npts = size(kpath_,1)
-       Lk=(Npts-1)*Nkpath
-       allocate(kpath(Npts,size(kpath_,2)))
-       kpath=kpath_
-       file="Eig_path.nint"
-    else
-       if(master)write(LOGfile,*)"Build H(k) BHZ along the path GXMG:"
-       Npts = 4
-       Lk=(Npts-1)*Nkpath
-       allocate(kpath(Npts,3))
-       kpath(1,:)=kpoint_Gamma
-       kpath(2,:)=kpoint_M1
-       kpath(3,:)=kpoint_X1
-       kpath(4,:)=kpoint_Gamma
-       file="Eigenbands.nint"
-    endif
-    if(allocated(Hk))deallocate(Hk)
-    if(allocated(wtk))deallocate(wtk)
-    allocate(Hk(Nso,Nso,Lk))
-    allocate(wtk(Lk))
-    call set_sigmaBHZ()
-    call TB_build_model(Hk,hk_bhz,Nso,kpath,Nkpath)
-    wtk = 1d0/Lk
-    if(master)  call TB_Solve_model(hk_bhz,Nso,kpath,Nkpath,&
-         colors_name=[red1,blue1,red1,blue1],&
-         points_name=[character(len=20) :: 'G', 'M', 'X', 'G'],&
-         file=reg(file))
-  end subroutine build_hk_GXMG
 
 
   !--------------------------------------------------------------------!
@@ -288,32 +253,28 @@ contains
     complex(8),dimension(Nso,Nso)          :: sigma(Nso,Nso)
     real(8),dimension(:,:),allocatable     :: kpath
     !
-    !This routine build the H(k) along the GXMG path in BZ, Hk(k) is constructed along this path.
-    write(LOGfile,*)"Build H_TOP(k) BHZ along path:"
-    !
-    call set_sigmaBHZ()
-    !
-    Npts = 8
-    Lk=(Npts-1)*Nkpath
-    allocate(kpath(Npts,3))
-    kpath(1,:)=kpoint_m1
-    kpath(2,:)=kpoint_x2
-    kpath(3,:)=kpoint_gamma
-    kpath(4,:)=kpoint_x1
-    kpath(5,:)=kpoint_m2
-    kpath(6,:)=kpoint_r
-    kpath(7,:)=kpoint_x3
-    kpath(8,:)=kpoint_gamma
-    call set_sigmaBHZ(sigma)
-    call TB_solve_model(hk_bhz,Nso,kpath,Nkpath,&
-         colors_name=[red1,blue1,red1,blue1],&
-         points_name=[character(len=20) :: "M","X","G","X1","A","R","Z","G"],&
-         file="Eig_Htop.ed")
-    if (usez) then
-       write(*,*) "Z11=",Zmats(1,1)
-       write(*,*) "Z22=",Zmats(2,2)
-       write(*,*) "Z33=",Zmats(3,3)
-       write(*,*) "Z44=",Zmats(4,4)
+    if(master)then
+       !This routine build the H(k) along the GXMG path in BZ, Hk(k) is constructed along this path.
+       write(LOGfile,*)"Build H_TOP(k) BHZ along path:"
+       !
+       call set_sigmaBHZ()
+       !
+       Npts = 8
+       Lk=(Npts-1)*Nkpath
+       allocate(kpath(Npts,3))
+       kpath(1,:)=kpoint_m1
+       kpath(2,:)=kpoint_x2
+       kpath(3,:)=kpoint_gamma
+       kpath(4,:)=kpoint_x1
+       kpath(5,:)=kpoint_m2
+       kpath(6,:)=kpoint_r
+       kpath(7,:)=kpoint_x3
+       kpath(8,:)=kpoint_gamma
+       call set_sigmaBHZ(sigma)
+       call TB_solve_model(hk_bhz,Nso,kpath,Nkpath,&
+            colors_name=[red1,blue1,red1,blue1],&
+            points_name=[character(len=20) :: "M","X","G","X1","A","R","Z","G"],&
+            file="Eig_Htop.ed")
     endif
   end subroutine solve_hk_topological
 
@@ -336,8 +297,8 @@ contains
     Hk(3:4,3:4) = conjg(hk_bhz2x2(-kx,-ky))
     ! Hk(1,4) = -delta ; Hk(4,1)=-delta
     ! Hk(2,3) =  delta ; Hk(3,2)= delta
-    Hk(1,3) = xi*rh*(sin(kx)-xi*sin(ky))
-    Hk(3,1) =-xi*rh*(sin(kx)+xi*sin(ky))
+    ! Hk(1,3) = xi*rh*(sin(kx)-xi*sin(ky))
+    ! Hk(3,1) =-xi*rh*(sin(kx)+xi*sin(ky))
     !add the SigmaBHZ term to get Topologial Hamiltonian if required:
     Hk = Hk + dreal(SigmaBHZ)
     !

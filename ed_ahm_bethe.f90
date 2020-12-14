@@ -68,7 +68,7 @@ program ed_ahm_bethe
   !
 
   !Setup solver
-  Nb=get_bath_dimension()
+  Nb=ed_get_bath_dimension()
   allocate(Bath(Nb))
   allocate(Bath_prev(Nb))
   call ed_init_solver(bath,Hloc)
@@ -84,21 +84,29 @@ program ed_ahm_bethe
      call ed_solve(bath,Hloc)
 
      !Retrieve impurity self-energies (normal, anomalous)
-     call ed_get_Smats(Smats)
+     call ed_get_Sigma_matsubara(Smats(1,:,:,:,:,:))
+     call ed_get_Self_matsubara(Smats(2,:,:,:,:,:))
 
      !Compute the local gfs:
      call dmft_gloc_matsubara(Ebethe,Dbethe,H0,Gmats,Smats)
+     call dmft_print_gf_matsubara(Gmats(1,:,:,:,:,:),"Gloc",iprint=1)
+     call dmft_print_gf_matsubara(Gmats(2,:,:,:,:,:),"Floc",iprint=1)
 
      call dmft_self_consistency(&
           Gmats(1,:,:,:,:,:),Gmats(2,:,:,:,:,:),&
           Smats(1,:,:,:,:,:),Smats(2,:,:,:,:,:),&
-          Weiss,Hloc,trim(cg_scheme))
+          Weiss,&
+          ! Weiss(1,:,:,:,:,:),Weiss(2,:,:,:,:,:),&
+          Hloc,trim(cg_scheme))
+     call dmft_print_gf_matsubara(Weiss(1,:,:,:,:,:),"Weiss",iprint=1)
+     call dmft_print_gf_matsubara(Weiss(2,:,:,:,:,:),"fWeiss",iprint=1)
 
      !Perform the self-consistency fitting the new bath
      call ed_chi2_fitgf(Weiss,bath,ispin=1)
+     !
      !if it holds apply symmetrizations 
-     if(phsym)call ph_symmetrize_bath(bath,save=.true.)
-     if(normal_bath)call enforce_normal_bath(bath,save=.true.)
+     if(phsym)call ed_ph_symmetrize_bath(bath,save=.true.)
+     if(normal_bath)call ed_enforce_normal_bath(bath,save=.true.)
 
      !MIXING:
      if(iloop>1)Bath = wmixing*Bath + (1.d0-wmixing)*Bath_prev
@@ -109,7 +117,7 @@ program ed_ahm_bethe
 
      if(nread/=0.d0)then
         call ed_get_dens(dens,iorb=1)
-        call search_chemical_potential(xmu,dens,converged)
+        call ed_search_variable(xmu,dens,converged)
      end if
 
      !Close this DMFT loop
@@ -117,11 +125,11 @@ program ed_ahm_bethe
   enddo
 
   !Compute the local gfs:
-  call ed_get_Sreal(Sreal)
+  call ed_get_Sigma_realaxis(Sreal(1,:,:,:,:,:))
+  call ed_get_Self_realaxis(Sreal(2,:,:,:,:,:))
   call dmft_gloc_realaxis(Ebethe,Dbethe,H0,Greal,Sreal)
 
-  call dmft_print_gf_matsubara(Gmats(1,:,:,:,:,:),"Gloc",iprint=1)
-  call dmft_print_gf_matsubara(Gmats(2,:,:,:,:,:),"Floc",iprint=1)
+
   call dmft_print_gf_realaxis(Greal(1,:,:,:,:,:),"Gloc",iprint=1)
   call dmft_print_gf_realaxis(Greal(2,:,:,:,:,:),"Floc",iprint=1)
 

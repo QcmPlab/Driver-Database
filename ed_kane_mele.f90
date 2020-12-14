@@ -156,8 +156,22 @@ program ed_kanemele
      endif
      !
      !Fit the new bath, starting from the old bath + the supplied Weiss
-     call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
-     if(ed_mode=="normal".AND.spinsym)call ed_spin_symmetrize_bath(bath,save=.true.)
+     !Fit the new bath, starting from the old bath + the supplied delta
+     select case(ed_mode)
+     case default
+        stop "ed_mode!=Normal/Nonsu2"
+     case("normal")
+        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=1)
+        if(.not.spinsym)then
+           call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=2)
+        else
+           call ed_spin_symmetrize_bath(bath,save=.true.)
+        endif
+     case("nonsu2")
+        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
+     end select
+     ! call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
+     ! if(ed_mode=="normal")spinsym)call ed_spin_symmetrize_bath(bath,save=.true.)
      !
      !MIXING:
      if(iloop>1)Bath=wmixing*Bath + (1.d0-wmixing)*Bath_prev

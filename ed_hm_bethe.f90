@@ -89,7 +89,7 @@ program lancED
 
 
   !setup solver
-  Nb=get_bath_dimension()
+  Nb=ed_get_bath_dimension()
   allocate(bath(Nb))
   allocate(bath_(Nb))
   call ed_init_solver(comm,bath,Hloc)
@@ -104,7 +104,7 @@ program lancED
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      call ed_solve(comm,bath)
      call ed_get_sigma_matsubara(Smats)
-     call ed_get_sigma_real(Sreal)
+     call ed_get_sigma_realaxis(Sreal)
      !
      ! compute the local gf:
      call dmft_gloc_matsubara(comm,Ebands,Dbands,H0,Gmats,Smats)
@@ -132,7 +132,7 @@ program lancED
      !Perform the SELF-CONSISTENCY by fitting the new bath
      if(symOrbs)then
         call ed_chi2_fitgf(comm,Weiss,bath,ispin=1,iorb=1)
-        call orb_equality_bath(bath,save=.true.)
+        call ed_orb_equality_bath(bath,save=.true.)
      else
         call ed_chi2_fitgf(comm,Weiss,bath,ispin=1)
      endif
@@ -162,8 +162,6 @@ program lancED
   enddo
 
 
-  call dmft_gloc_realaxis(Comm,Ebands,Dbands,H0,Greal,Sreal)
-  if(master)call dmft_print_gf_realaxis(Greal,"Greal",iprint=1)
   call dmft_kinetic_energy(comm,Ebands,Dbands,H0,Smats(1,1,:,:,:))
 
   call finalize_MPI()

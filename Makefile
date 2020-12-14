@@ -29,7 +29,7 @@ FPPFLAG =-fpp
 endif
 ifeq ($(PLAT),gnu)
 FFLAG = -O2 -ffree-line-length-none
-DFLAG = -O0 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
+FFLAG = -O2 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 OFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
 FPPFLAG =-cpp
 endif
