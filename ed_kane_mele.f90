@@ -22,7 +22,6 @@ program ed_kanemele
   complex(8),allocatable,dimension(:,:,:)       :: Hk
   complex(8),allocatable,dimension(:,:)         :: kmHloc
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc
-  real(8),allocatable,dimension(:)              :: Wtk
 
   integer,allocatable,dimension(:)              :: ik2ix,ik2iy
   real(8),dimension(2)                          :: e1,e2   !real-space lattice basis
@@ -131,7 +130,7 @@ program ed_kanemele
   iloop=0;converged=.false.
   do while(.not.converged.AND.iloop<nloop)
      iloop=iloop+1
-     if(master)call start_loop(iloop,nloop,"DMFT-loop")
+     call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      !Solve separately the two atoms:
@@ -145,17 +144,16 @@ program ed_kanemele
      ! Smats(2,1,1,:,:,:) = -Smats(1,2,2,:,:,:) !sub_B(up,up) = -sub_A(dw,dw)
      !
      ! compute the local gf:
-     call dmft_gloc_matsubara(comm,Hk,Wtk,Gmats,Smats,mpi_split='k')
-     if(master)call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4)
+     call dmft_gloc_matsubara(Hk,Gmats,Smats)
+     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4)
      !
      ! compute the Weiss field (only the Nineq ones)
      if(cg_scheme=='weiss')then
-        call dmft_weiss(comm,Gmats,Smats,Weiss,Hloc)
+        call dmft_weiss(Gmats,Smats,Weiss,Hloc)
      else
-        call dmft_delta(comm,Gmats,Smats,Weiss,Hloc)
+        call dmft_delta(Gmats,Smats,Weiss,Hloc)
      endif
      !
-     !Fit the new bath, starting from the old bath + the supplied Weiss
      !Fit the new bath, starting from the old bath + the supplied delta
      select case(ed_mode)
      case default
@@ -170,29 +168,24 @@ program ed_kanemele
      case("nonsu2")
         call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
      end select
-     ! call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
-     ! if(ed_mode=="normal")spinsym)call ed_spin_symmetrize_bath(bath,save=.true.)
      !
      !MIXING:
      if(iloop>1)Bath=wmixing*Bath + (1.d0-wmixing)*Bath_prev
      Bath_prev=Bath
      !
-     if(master)then
-        converged = check_convergence(Weiss(:,1,1,1,1,:),dmft_error,nsuccess,nloop)
-     endif
-     call Bcast_MPI(comm,converged)
+     converged = check_convergence(Weiss(:,1,1,1,1,:),dmft_error,nsuccess,nloop)
      !
-     if(master)call end_loop
+     call end_loop
   enddo
   call dmft_print_gf_matsubara(Gmats,"Gmats",iprint=4)
 
 
   !Extract and print retarded self-energy and Green's function 
-  call dmft_gloc_realaxis(comm,Hk,Wtk,Greal,Sreal,mpi_split='k')
-  if(master)call dmft_print_gf_realaxis(Greal,"Greal",iprint=4)
+  call dmft_gloc_realaxis(Hk,Greal,Sreal)
+  call dmft_print_gf_realaxis(Greal,"Greal",iprint=4)
 
 
-  call dmft_kinetic_energy(comm,Hk,Wtk,Smats)
+  call dmft_kinetic_energy(Hk,Smats)
 
   call finalize_MPI()
 
@@ -221,14 +214,11 @@ contains
     write(LOGfile,*)"# of SO-bands     :",Nlso
     !
     if(allocated(Hk))deallocate(Hk)
-    if(allocated(wtk))deallocate(wtk)
     !
     allocate(Hk(Nlso,Nlso,Lk));Hk=zero
-    allocate(wtk(Lk));Wtk=0d0
     !
     !
     call TB_build_model(Hk,hk_kanemele_model,Nlso,[Nk,Nk],wdos=.false.)
-    Wtk = 1d0/Lk
     !
     !
     allocate(kmHloc(Nlso,Nlso))
