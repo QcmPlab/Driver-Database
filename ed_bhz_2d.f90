@@ -118,6 +118,7 @@ program ed_bhz
      call ed_init_solver(comm,bath,Hloc=j2so(bhzHloc))
   endif
 
+
   !DMFT loop
   iloop=0;converged=.false.
   do while(.not.converged.AND.iloop<nloop)
@@ -127,13 +128,19 @@ program ed_bhz
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      call ed_solve(comm,bath)
      call ed_get_sigma_matsubara(Smats)
+     call ed_get_sigma_realaxis(Sreal)
+     call ed_get_dens(dens)
 
-     call dmft_gloc_matsubara(comm,Hk,Wtk,Gmats,Smats)
+
+     !Get GLOC:
+     call dmft_gloc_matsubara(Hk,Gmats,Smats)
      call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=print_mode)
 
 
-     call dmft_self_consistency(comm,Gmats,Smats,Delta,j2so(bhzHloc),cg_scheme)
+     !Update WeissField:
+     call dmft_self_consistency(Gmats,Smats,Delta,j2so(bhzHloc),cg_scheme)
      call dmft_print_gf_matsubara(Delta,"Weiss",iprint=print_mode)
+
 
      !Fit the new bath, starting from the old bath + the supplied delta
      select case(ed_mode)
@@ -155,9 +162,9 @@ program ed_bhz
      Bath_=Bath
      !
 
+     !there is no need to perform these action under if(master).
+     !these are MPI-aware
      converged = check_convergence(delta(1,1,1,1,:),dmft_error,nsuccess,nloop)
-
-     call ed_get_dens(dens)
      if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
 
      call end_loop
@@ -165,16 +172,11 @@ program ed_bhz
 
 
 
-  ! print*,rank,converged
-  ! call Barrier_MPI(comm)
 
-
-  call ed_get_sigma_realaxis(Sreal)
-  call dmft_gloc_realaxis(comm,Hk,Wtk,Greal,Sreal)
+  call dmft_gloc_realaxis(Hk,Greal,Sreal)
   call dmft_print_gf_realaxis(Greal,"Gloc",iprint=print_mode)
 
-
-  call dmft_kinetic_energy(comm,Hk,Wtk,Smats)
+  call dmft_kinetic_energy(Hk,Smats)
 
   call solve_hk_topological(so2j(Smats(:,:,:,:,1),Nso))
 

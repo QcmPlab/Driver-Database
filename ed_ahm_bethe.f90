@@ -86,18 +86,22 @@ program ed_ahm_bethe
      !Retrieve impurity self-energies (normal, anomalous)
      call ed_get_Sigma_matsubara(Smats(1,:,:,:,:,:))
      call ed_get_Self_matsubara(Smats(2,:,:,:,:,:))
+     call ed_get_Sigma_realaxis(Sreal(1,:,:,:,:,:))
+     call ed_get_Self_realaxis(Sreal(2,:,:,:,:,:))
+     call ed_get_dens(dens,iorb=1)
 
      !Compute the local gfs:
      call dmft_gloc_matsubara(Ebethe,Dbethe,H0,Gmats,Smats)
-     call dmft_print_gf_matsubara(Gmats(1,:,:,:,:,:),"Gloc",iprint=1)
-     call dmft_print_gf_matsubara(Gmats(2,:,:,:,:,:),"Floc",iprint=1)
 
      call dmft_self_consistency(&
           Gmats(1,:,:,:,:,:),Gmats(2,:,:,:,:,:),&
           Smats(1,:,:,:,:,:),Smats(2,:,:,:,:,:),&
-          Weiss,&
-          ! Weiss(1,:,:,:,:,:),Weiss(2,:,:,:,:,:),&
+                                ! Weiss,&
+          Weiss(1,:,:,:,:,:),Weiss(2,:,:,:,:,:),&
           Hloc,trim(cg_scheme))
+
+     call dmft_print_gf_matsubara(Gmats(1,:,:,:,:,:),"Gloc",iprint=1)
+     call dmft_print_gf_matsubara(Gmats(2,:,:,:,:,:),"Floc",iprint=1)
      call dmft_print_gf_matsubara(Weiss(1,:,:,:,:,:),"Weiss",iprint=1)
      call dmft_print_gf_matsubara(Weiss(2,:,:,:,:,:),"fWeiss",iprint=1)
 
@@ -115,21 +119,15 @@ program ed_ahm_bethe
      !Check convergence (if required change chemical potential)
      converged = check_convergence(Weiss(1,1,1,1,1,:),dmft_error,nsuccess,nloop,reset=.false.)
 
-     if(nread/=0.d0)then
-        call ed_get_dens(dens,iorb=1)
-        call ed_search_variable(xmu,dens,converged)
-     end if
+     if(nread/=0.d0)call ed_search_variable(xmu,dens,converged)
 
      !Close this DMFT loop
      call end_loop
   enddo
 
   !Compute the local gfs:
-  call ed_get_Sigma_realaxis(Sreal(1,:,:,:,:,:))
-  call ed_get_Self_realaxis(Sreal(2,:,:,:,:,:))
+
   call dmft_gloc_realaxis(Ebethe,Dbethe,H0,Greal,Sreal)
-
-
   call dmft_print_gf_realaxis(Greal(1,:,:,:,:,:),"Gloc",iprint=1)
   call dmft_print_gf_realaxis(Greal(2,:,:,:,:,:),"Floc",iprint=1)
 

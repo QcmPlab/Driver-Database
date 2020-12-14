@@ -99,28 +99,29 @@ program lancED
   iloop=0;converged=.false.
   do while(.not.converged.AND.iloop<nloop)
      iloop=iloop+1
-     if(master)call start_loop(iloop,nloop,"DMFT-loop")
+     call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      call ed_solve(comm,bath)
      call ed_get_sigma_matsubara(Smats)
      call ed_get_sigma_realaxis(Sreal)
-     !
+     call ed_get_dens(dens)
+
      ! compute the local gf:
-     call dmft_gloc_matsubara(comm,Ebands,Dbands,H0,Gmats,Smats)
-     if(master)call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
-     !
-     call dmft_gloc_realaxis(Comm,Ebands,Dbands,H0,Greal,Sreal)
-     if(master)call dmft_print_gf_realaxis(Greal,"Greal",iprint=1)
+     call dmft_gloc_matsubara(Ebands,Dbands,H0,Gmats,Smats)
+     call dmft_gloc_realaxis(Ebands,Dbands,H0,Greal,Sreal)
      !
      !Get the Weiss field/Delta function to be fitted
      if(.not.betheSC)then
-        call dmft_self_consistency(comm,Gmats,Smats,Weiss,Hloc,SCtype=cg_scheme)
+        call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,SCtype=cg_scheme)
      else
         if(wGimp)call ed_get_gimp_matsubara(Gmats)
-        call dmft_self_consistency(comm,Gmats,Weiss,Hloc,SCtype=cg_scheme,wbands=Wband)
+        call dmft_self_consistency(Gmats,Weiss,Hloc,SCtype=cg_scheme,wbands=Wband)
      endif
-     if(master)call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=1)
+
+     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
+     call dmft_print_gf_realaxis(Greal,"Greal",iprint=1)
+     call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=1)
      !
      !
      !
@@ -144,25 +145,18 @@ program lancED
      endif
      !
      !Check convergence (if required change chemical potential)
-     if(master)then
-        Gtest=zero
-        do iorb=1,Norb
-           Gtest=Gtest+Weiss(1,1,iorb,iorb,:)/Norb
-        enddo
-        converged = check_convergence(Gtest,dmft_error,nsuccess,nloop,reset=.false.)
-        if(nread/=0d0)then
-           call ed_get_dens(dens)
-           call ed_search_variable(xmu,sum(dens),converged)
-        endif
-     endif
-     call Bcast_MPI(comm,converged)
-     call Bcast_MPI(comm,xmu)
-     !
-     if(master)call end_loop
+     Gtest=zero
+     do iorb=1,Norb
+        Gtest=Gtest+Weiss(1,1,iorb,iorb,:)/Norb
+     enddo
+     converged = check_convergence(Gtest,dmft_error,nsuccess,nloop,reset=.false.)
+     if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
+
+     call end_loop
   enddo
 
 
-  call dmft_kinetic_energy(comm,Ebands,Dbands,H0,Smats(1,1,:,:,:))
+  call dmft_kinetic_energy(Ebands,Dbands,H0,Smats(1,1,:,:,:))
 
   call finalize_MPI()
 
