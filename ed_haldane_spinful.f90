@@ -1,4 +1,4 @@
-program ed_kanemele
+program ed_haldane
   USE DMFT_ED
   USE SCIFOR
   USE DMFT_TOOLS
@@ -379,7 +379,7 @@ contains
     enddo
   end function lso2nnn_reshape
 
-end program ed_kanemele
+end program ed_haldane
 
 
 
