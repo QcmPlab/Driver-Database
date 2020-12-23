@@ -55,9 +55,9 @@ program ed_kanemele
   call parse_input_variable(t1,"T1",finput,default=2d0,comment='NN hopping, fixes noninteracting bandwidth')
   call parse_input_variable(t2,"T2",finput,default=0d0,comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
   call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
-  call parse_input_variable(mh,"MH",finput,default=0d0, comment='Dirac cone "mass" term, i.e. strenght of the on-site energy staggering. Dafault value is zero, making the two honeycomb orbitals equivalent -> NORB=1')
-  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update). Never use a large value, decrease a lot near transitions.')
-  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='SU(2) constraint. Incompatible with magnetic order. Incompatible with SO interaction. Be careful.')
+  call parse_input_variable(mh,"MH",finput,default=0d0, comment='On-site staggering. KM-value is zero, making the two honeycomb orbitals equivalent -> NORB=1')
+  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
+  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='T fits just one spin bath (and copies on the other); F fits both.')
   call parse_input_variable(neelsym,"NEELSYM",finput,default=.false.,comment='Refers to AFM ordering; currently has no real consequence on this driver.')
   !
   call ed_read_input(trim(finput),comm)
@@ -155,6 +155,10 @@ program ed_kanemele
      endif
      !
      !Fit the new bath, starting from the old bath + the supplied delta
+     !Behaves differently depending on the ed_mode input:
+     !IF(NORMAL): normal/magZ phase is solved, so either fit spin1 or spin1&2 -> SPINSYM of choice
+     !IF(NONSU2): Sz-conservation broken, SOI or magXY, fit both spins -> SPINSYM has to be false
+     !IF(SUPERC): gives error, superconductivity is not allowed here!
      select case(ed_mode)
      case default
         stop "ed_mode!=Normal/Nonsu2"
@@ -173,10 +177,12 @@ program ed_kanemele
      if(iloop>1)Bath=wmixing*Bath + (1.d0-wmixing)*Bath_prev
      Bath_prev=Bath
      !
+     !Check convergence. This is now entirely MPI-aware:
      converged = check_convergence(Weiss(:,1,1,1,1,:),dmft_error,nsuccess,nloop)
      !
      call end_loop
   enddo
+
   call dmft_print_gf_matsubara(Gmats,"Gmats",iprint=4)
 
 
@@ -184,8 +190,16 @@ program ed_kanemele
   call dmft_gloc_realaxis(Hk,Greal,Sreal)
   call dmft_print_gf_realaxis(Greal,"Greal",iprint=4)
 
-
+  if(master)write(*,*) "getting kinetic energy"
   call dmft_kinetic_energy(Hk,Smats)
+
+  if(master) then
+     write(*,*) "!***************************!"
+     write(*,*) "!*                         *!"
+     write(*,*) "!*   !!!  FINISHED  !!!    *!"
+     write(*,*) "!*                         *!"
+     write(*,*) "!***************************!"
+  endif
 
   call finalize_MPI()
 
@@ -254,34 +268,54 @@ contains
     complex(8),dimension(2,2)       :: hk11,hk22
     complex(8),dimension(Nlso,Nlso) :: hk
     real(8)                         :: h0,hx,hy,hz
-    real(8)                         :: kdotd(3),kdota(3)
-    !(k.d_j)
-    kdotd(1) = dot_product(kpoint,d1)
-    kdotd(2) = dot_product(kpoint,d2)
-    kdotd(3) = dot_product(kpoint,d3)
-    !(k.a_j)
-    kdota(1) = dot_product(kpoint,a1)
-    kdota(2) = dot_product(kpoint,a2)
-    kdota(3) = dot_product(kpoint,a3)
+    !----- Old Version ---------
+    !real(8)                         :: kdotd(3),kdota(3)
+    !!(k.d_j)
+    !kdotd(1) = dot_product(kpoint,d1)
+    !kdotd(2) = dot_product(kpoint,d2)
+    !kdotd(3) = dot_product(kpoint,d3)
+    !!(k.a_j)
+    !kdota(1) = dot_product(kpoint,a1)
+    !kdota(2) = dot_product(kpoint,a2)
+    !kdota(3) = dot_product(kpoint,a3)
     !
-    h0 = 2*t2*cos(phi)*sum( cos(kdota(:)) )
-    hx =-t1*sum( cos(kdotd(:)) )
-    hy =-t1*sum( sin(kdotd(:)) )
-    hz = 2*t2*sin(phi)*sum( sin(kdota(:)) )
+    !h0 = 2*t2*cos(phi)*sum( cos(kdota(:)) )
+    !hx =-t1*sum( cos(kdotd(:)) )
+    !hy =-t1*sum( sin(kdotd(:)) )
+    !hz = 2*t2*sin(phi)*sum( sin(kdota(:)) )
+    !
+    !
+    !----- New Version [Consistent with Bernevig&Hughes book] ---------
+    ! This way of creating the Hamiltonian we get a Bloch structure and can obtain local
+    ! (i.e. in the unit-cell) quantities by averaging over all k-points. 
+    real(8)			     :: kdote1, kdote2
+    !
+    kdote1 = dot_product(kpoint,e1)
+    kdote2 = dot_product(kpoint,e2)
+    !
+    h0 = 2*t2*cos(phi)*( cos(kdote1) + cos(kdote2) + cos(kdote1-kdote2) )
+    hx = t1*( cos(kdote1) + cos(kdote2) + 1)
+    hy = t1*( sin(kdote1) + sin(kdote2) )
+    hz = 2*t2*sin(phi)*( sin(kdote1) - sin(kdote2) - sin(kdote1-kdote2) )
     !
     hk11 = h0*pauli_0 + hx*pauli_x + hy*pauli_y + hz*pauli_z + Mh*pauli_z
     !
     hk22 = h0*pauli_0 + hx*pauli_x - hy*pauli_y - hz*pauli_z + Mh*pauli_z
     !
     hk          = zero
-    hk(1:2,1:2) = hk11
-    hk(3:4,3:4) = hk22
+    !hk(1:2,1:2) = hk11
+    !hk(3:4,3:4) = hk22
+    !create hk such that it works well with lso2nnn_reshape(kmHloc,Nlat,Nspin,Norb)
+    hk(1:3:2,1:3:2) = hk11
+    hk(2:4:2,2:4:2) = hk22
     !
   end function hk_kanemele_model
 
 
 
-
+  !--------------------------------------------------------------------!
+  !Reshaping functions:                                                !
+  !--------------------------------------------------------------------!
 
 
 
@@ -336,6 +370,7 @@ contains
 
 
 end program ed_kanemele
+
 
 
 
