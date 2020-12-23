@@ -299,7 +299,7 @@ contains
     !
     hk11 = h0*pauli_0 + hx*pauli_x + hy*pauli_y + hz*pauli_z + Mh*pauli_z
     !
-    hk22 = h0*pauli_0 + hx*pauli_x - hy*pauli_y - hz*pauli_z + Mh*pauli_z
+    hk22 = h0*pauli_0 + hx*pauli_x + hy*pauli_y - hz*pauli_z + Mh*pauli_z
     !
     hk          = zero
     !hk(1:2,1:2) = hk11
