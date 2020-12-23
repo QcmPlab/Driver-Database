@@ -50,13 +50,13 @@ program ed_haldane
   call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",comment='Hk will be written here')
   call parse_input_variable(nk,"NK",finput,default=100,comment='Number of kpoints per directoin')
   call parse_input_variable(nkpath,"NKPATH",finput,default=500,comment='Number of kpoints per intervall on kpath')
-  call parse_input_variable(t1,"T1",finput,default=1d0,comment='Nearest neighbour hopping')
+  call parse_input_variable(t1,"T1",finput,default=1d0,comment='Nearest neighbour hopping amplitude')
   call parse_input_variable(t2,"T2",finput,default=0.2d0,comment='Next-nearest neighbour hopping amplitude')
   call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Next-nearest neighbour hpping phase. With TIMEREVSYM=T and PHI=pi/2 this corrensponds to the Kane-Mele Model without Rashba terms.')
   call parse_input_variable(mh,"MH",finput,default=0d0,comment='On-site staggering i.e. Semenoff-Mass')
-  call parse_input_variable(wmixing,"WMIXING",finput,default=0.6d0,comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update). Use a large value with care, decrease a lot near transitions.')
-  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='SU(2) constraint. Incompatible with magnetic order. Incompatible with SO interaction. Be careful.')
-  call parse_input_variable(afmkick,"AFMKICK",finput,default=.false.)
+  call parse_input_variable(wmixing,"WMIXING",finput,default=0.6d0,comment='Mixing parameter of the self-energy. Takes values from 0 (no update) to 1 (full-update). Use a large values with care, decrease near phase transitions.')
+  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='If T(True) spin channels (i.e. their respective baths) are symmetrized. Incompatible with magnetic order. For full spin freedom set to F(False) together with ED_MODE=nonsu2')
+  call parse_input_variable(afmkick,"AFMKICK",finput,default=.false.,comment='If T(True) the spin baths get an initial antiferromagnetic distortion')
   call parse_input_variable(timerevsym,"TIMEREVSYM",finput,default=.false.,comment='Use time-reversal symmetric version of Hamiltonian')
   !
   call ed_read_input(trim(finput),comm)
@@ -124,34 +124,25 @@ program ed_haldane
   iloop=0;converged=.false.
   do while(.not.converged.AND.iloop<nloop)
      iloop=iloop+1
-     write(*,*) "Rank ", rank, " reporting loop number: ", iloop
      call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      !Solve separately the two atoms:
      do ilat=1,Nlat
-        write(*,*) "Rank ", rank, " reporting solving atom", ilat
         call ed_set_suffix(ilat) !this is need to print different files for different sites
         call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))
-        write(*,*) "Rank ", rank, " reporting solved atom", ilat
         !get the important functions to be used later: next call they will be overwritten.
-        write(*,*) "Rank ", rank, " reporting get sig_mat atom", ilat
         call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
-        write(*,*) "Rank ", rank, " reporting get sig_real atom", ilat
         call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
      enddo
      call ed_reset_suffix()
      !
      ! compute the local gf:
-     write(*,*) "Rank ", rank, " reporting gloc_mats computation"
      call dmft_gloc_matsubara(Hk,Gmats,Smats)
-     write(*,*) "Rank ", rank, " reporting gloc_mats computation finished"
      call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
      !
      ! compute the Weiss field (only the Nineq ones)
-     write(*,*) "Rank ", rank, " reporting weiss computation"
      call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,cg_scheme)
-     write(*,*) "Rank ", rank, " reporting dmft_weiss"
 
      !Fit the new bath, starting from the old bath + the supplied delta
      !Behaves differently depending on the ed_mode input:
@@ -183,7 +174,6 @@ program ed_haldane
      call end_loop
   enddo
 
-  write(*,*) "Rank ", rank, " exited DMFT loop"
   if(master)write(*,*) "Done with DMFT loops"
   if(master)write(*,*) "print G_matsubara"
   call dmft_print_gf_matsubara(Gmats,"Gmats",iprint=4)
