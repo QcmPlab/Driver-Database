@@ -1,9 +1,9 @@
 #TO BE CHANGED BY USER:
 #$ DRIVER NAME without .f90 extension
-#$ COMPILER: suppprted compilers are ifort, gnu >v4.7 or use mpif90
+#$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-EXE=ed_bhz_2d
+EXE=ed_kane_mele
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
