@@ -28,7 +28,9 @@ program ed_bhz
   !
   real(8),dimension(2)                        :: Eout
   real(8),allocatable                         :: dens(:)
-  complex(8),allocatable,dimension(:,:)       :: gamma5,gammaXX,gammaXY
+  complex(8),dimension(4,4)                   :: Gamma1,Gamma2,Gamma5,GammaS
+  complex(8),dimension(4,4)                   :: GammaN,GammaTz,GammaSz,GammaRz
+  complex(8),dimension(4,4)                   :: GammaE0,GammaEx,GammaEy,GammaEz
   real(8),dimension(:),allocatable            :: lambdasym_vector
   complex(8),dimension(:,:,:,:,:),allocatable :: Hsym_basis
   !MPI Vars:
@@ -79,11 +81,21 @@ program ed_bhz
   allocate(SigmaBHZ(Nso,Nso))
   allocate(Zmats(Nso,Nso))
 
-  allocate(GammaXX(Nso,Nso),GammaXY(Nso,Nso),Gamma5(Nso,Nso))
+  gamma1=kron_pauli( pauli_sigma_z, pauli_tau_x)
+  gamma2=kron_pauli( pauli_sigma_0,-pauli_tau_y)
+  gamma5=kron_pauli( pauli_sigma_0, pauli_tau_z)
+  gammaS=kron_pauli( pauli_sigma_z, pauli_tau_0)
   gamma5 =kron_pauli( pauli_sigma_0, pauli_tau_z )
-  gammaXX=kron_pauli( pauli_sigma_x, pauli_tau_x )
-  gammaXY=kron_pauli( pauli_sigma_x, pauli_tau_y )
-
+  !
+  gammaN=kron_pauli( pauli_sigma_0, pauli_tau_0 )
+  gammaTz=kron_pauli( pauli_sigma_0, pauli_tau_z )
+  gammaSz=kron_pauli( pauli_sigma_z, pauli_tau_0 )
+  gammaRz=kron_pauli( pauli_sigma_z, pauli_tau_z )
+  !
+  gammaE0=kron_pauli( pauli_sigma_0, pauli_tau_x )
+  gammaEx=kron_pauli( pauli_sigma_x, pauli_tau_x )
+  gammaEy=kron_pauli( pauli_sigma_y, pauli_tau_x )
+  gammaEz=kron_pauli( pauli_sigma_z, pauli_tau_x )
 
   !Buil the Hamiltonian on a grid or on  path
   call set_sigmaBHZ()
@@ -95,17 +107,18 @@ program ed_bhz
   !Setup solver
   if(bath_type=="replica")then
      !Setup HLOC symmetries
-     allocate(lambdasym_vector(3))
+     allocate(lambdasym_vector(5))
      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
      !
      lambdasym_vector(1)=Mh
+     lambdasym_vector(2:)=sb_field
      Hsym_basis(:,:,:,:,1)=j2so(Gamma5)
-     !
-     lambdasym_vector(2)=sb_field
-     Hsym_basis(:,:,:,:,2)=j2so(GammaXX)
-     !
-     lambdasym_vector(3)=sb_field
-     Hsym_basis(:,:,:,:,3)=j2so(GammaXY)
+     Hsym_basis(:,:,:,:,2)=j2so(GammaE0)
+     Hsym_basis(:,:,:,:,3)=j2so(GammaEx)
+     Hsym_basis(:,:,:,:,4)=j2so(GammaEy)
+     Hsym_basis(:,:,:,:,5)=j2so(GammaEz)
+
+
      call ed_set_Hloc(Hsym_basis,lambdasym_vector)
      Nb=ed_get_bath_dimension(Hsym_basis)
      allocate(Bath(Nb))
@@ -178,7 +191,7 @@ program ed_bhz
 
   call dmft_kinetic_energy(Hk,Smats)
 
-  call solve_hk_topological(so2j(Smats(:,:,:,:,1),Nso))
+  call solve_hk_topological(so2j(Smats(:,:,:,:,1)))
 
 
   call finalize_MPI()
@@ -287,23 +300,18 @@ contains
   !BHZ HAMILTONIAN:
   !--------------------------------------------------------------------!
   function hk_bhz(kvec,N) result(hk)
+    integer                   :: N
     real(8),dimension(:)      :: kvec
     complex(8),dimension(N,N) :: hk
-    real(8)                   :: kx,ky
-    integer                   :: N,ii
+    real(8)                   :: ek,kx,ky
+    integer                   :: ii
     if(N/=Nso)stop "hk_bhz error: N != Nspin*Norb == 4"
     kx=kvec(1)
     ky=kvec(2)
-    Hk          = zero
-    Hk(1:2,1:2) = hk_bhz2x2(kx,ky)
-    Hk(3:4,3:4) = conjg(hk_bhz2x2(-kx,-ky))
-    ! Hk(1,4) = -delta ; Hk(4,1)=-delta
-    ! Hk(2,3) =  delta ; Hk(3,2)= delta
-    ! Hk(1,3) = xi*rh*(sin(kx)-xi*sin(ky))
-    ! Hk(3,1) =-xi*rh*(sin(kx)+xi*sin(ky))
-    !add the SigmaBHZ term to get Topologial Hamiltonian if required:
+    ek = -1d0*(cos(kx)+cos(ky))
+    Hk = (Mh+ek)*Gamma5 + lambda*sin(kx)*Gamma1 + lambda*sin(ky)*Gamma2
+    ! !add the SigmaBHZ term to get Topologial Hamiltonian if required:
     Hk = Hk + dreal(SigmaBHZ)
-    !
     if (usez) then
        Zmats=zero
        do ii=1,Nso
@@ -312,16 +320,6 @@ contains
        Hk = matmul(Zmats,Hk)
     endif
   end function hk_bhz
-
-  function hk_bhz2x2(kx,ky) result(hk)
-    real(8)                   :: kx,ky,epsik
-    complex(8),dimension(2,2) :: hk
-    epsik   = cos(kx)+cos(ky)
-    hk(1,1) = mh - epsik
-    hk(2,2) =-mh + epsik
-    hk(1,2) = lambda*(sin(kx)-xi*sin(ky))
-    hk(2,1) = lambda*(sin(kx)+xi*sin(ky))
-  end function hk_bhz2x2
 
 
 
@@ -372,10 +370,10 @@ contains
   end function so2j_index
 
 
-  function so2j(fg,Nso) result(g)
+  function so2j(fg) result(g)
     complex(8),dimension(Nspin,Nspin,Norb,Norb) :: fg
-    complex(8),dimension(Nso,Nso)               :: g
-    integer                                     :: Nso,i,j,iorb,jorb,ispin,jspin
+    complex(8),dimension(Nspin*Norb,Nspin*Norb) :: g
+    integer                                     :: i,j,iorb,jorb,ispin,jspin
     do ispin=1,Nspin
        do jspin=1,Nspin
           do iorb=1,Norb
@@ -390,7 +388,7 @@ contains
   end function so2j
 
   function j2so(fg) result(g)
-    complex(8),dimension(Nso,Nso)               :: fg
+    complex(8),dimension(Nspin*Norb,Nspin*Norb) :: fg
     complex(8),dimension(Nspin,Nspin,Norb,Norb) :: g
     integer                                     :: i,j,iorb,jorb,ispin,jspin
     do ispin=1,Nspin
