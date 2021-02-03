@@ -8,12 +8,13 @@ program ed_bhz
   integer                                     :: iloop,Lk,Nso
   logical                                     :: converged
   !Bath:
-  integer                                     :: Nb,iorb,jorb,print_mode
+  integer                                     :: Nb,iorb,jorb,ispin,print_mode
   real(8),allocatable                         :: Bath(:),Bath_(:)
   !The local hybridization function:
-  complex(8),allocatable                      :: Delta(:,:,:,:,:)
+  complex(8),allocatable                      :: Weiss(:,:,:,:,:),Weiss_(:,:,:,:,:)
   complex(8),allocatable                      :: Smats(:,:,:,:,:),Sreal(:,:,:,:,:)
   complex(8),allocatable                      :: Gmats(:,:,:,:,:),Greal(:,:,:,:,:)
+  complex(8),allocatable,dimension(:)         :: Gtest
   !hamiltonian input:
   complex(8),allocatable                      :: Hk(:,:,:),bhzHloc(:,:),sigmaBHZ(:,:),Zmats(:,:)
   real(8),allocatable                         :: Wtk(:)
@@ -24,7 +25,7 @@ program ed_bhz
   real(8)                                     :: mh,lambda,wmixing,akrange,rh
   character(len=16)                           :: finput
   character(len=32)                           :: hkfile
-  logical                                     :: spinsym,usez
+  logical                                     :: spinsym,usez,mixG0
   !
   real(8),dimension(2)                        :: Eout
   real(8),allocatable                         :: dens(:)
@@ -51,9 +52,9 @@ program ed_bhz
   call parse_input_variable(nk,"NK",finput,default=100)
   call parse_input_variable(nkpath,"NKPATH",finput,default=500)
   call parse_input_variable(mh,"MH",finput,default=0.d0)
-  call parse_input_variable(rh,"RH",finput,default=0.d0)
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0)
   call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.)
+  call parse_input_variable(mixG0,"mixG0",finput,default=.false.)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.d0)
   call parse_input_variable(usez,"USEZ",finput,default=.false.)
   !
@@ -72,11 +73,13 @@ program ed_bhz
   Nso=Nspin*Norb
 
   !Allocate Weiss Field:
-  allocate(Delta(Nspin,Nspin,Norb,Norb,Lmats))
+  allocate(Weiss(Nspin,Nspin,Norb,Norb,Lmats))
+  allocate(Weiss_(Nspin,Nspin,Norb,Norb,Lmats))
   allocate(Smats(Nspin,Nspin,Norb,Norb,Lmats))
   allocate(Gmats(Nspin,Nspin,Norb,Norb,Lmats))
   allocate(Sreal(Nspin,Nspin,Norb,Norb,Lreal))
   allocate(Greal(Nspin,Nspin,Norb,Norb,Lreal))
+  allocate(Gtest(Lmats))
   allocate(dens(Norb))
   allocate(SigmaBHZ(Nso,Nso))
   allocate(Zmats(Nso,Nso))
@@ -85,7 +88,7 @@ program ed_bhz
   gamma2=kron_pauli( pauli_sigma_0,-pauli_tau_y)
   gamma5=kron_pauli( pauli_sigma_0, pauli_tau_z)
   gammaS=kron_pauli( pauli_sigma_z, pauli_tau_0)
-  gamma5 =kron_pauli( pauli_sigma_0, pauli_tau_z )
+  gamma5=kron_pauli( pauli_sigma_0, pauli_tau_z )
   !
   gammaN=kron_pauli( pauli_sigma_0, pauli_tau_0 )
   gammaTz=kron_pauli( pauli_sigma_0, pauli_tau_z )
@@ -107,16 +110,17 @@ program ed_bhz
   !Setup solver
   if(bath_type=="replica")then
      !Setup HLOC symmetries
-     allocate(lambdasym_vector(5))
-     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+     allocate(lambdasym_vector(4))
+     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
      !
      lambdasym_vector(1)=Mh
      lambdasym_vector(2:)=sb_field
      Hsym_basis(:,:,:,:,1)=j2so(Gamma5)
      Hsym_basis(:,:,:,:,2)=j2so(GammaE0)
      Hsym_basis(:,:,:,:,3)=j2so(GammaEx)
-     Hsym_basis(:,:,:,:,4)=j2so(GammaEy)
-     Hsym_basis(:,:,:,:,5)=j2so(GammaEz)
+     Hsym_basis(:,:,:,:,4)=j2so(GammaEz)
+     ! Hsym_basis(:,:,:,:,5)=j2so(GammaEy)
+
 
 
      call ed_set_Hloc(Hsym_basis,lambdasym_vector)
@@ -151,33 +155,45 @@ program ed_bhz
 
 
      !Update WeissField:
-     call dmft_self_consistency(Gmats,Smats,Delta,j2so(bhzHloc),cg_scheme)
-     call dmft_print_gf_matsubara(Delta,"Weiss",iprint=print_mode)
+     call dmft_self_consistency(Gmats,Smats,Weiss,j2so(bhzHloc),cg_scheme)
+     call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=print_mode)
 
 
-     !Fit the new bath, starting from the old bath + the supplied delta
+     if(mixG0)then
+        if(iloop>1)Weiss = wmixing*Weiss + (1.d0-wmixing)*Weiss_
+        Weiss_=Weiss
+     endif
+
+     !Fit the new bath, starting from the old bath + the supplied Weiss
      select case(ed_mode)
      case default
         stop "ed_mode!=Normal/Nonsu2"
      case("normal")
-        call ed_chi2_fitgf(comm,delta,bath,ispin=1)
+        call ed_chi2_fitgf(comm,Weiss,bath,ispin=1)
         if(.not.spinsym)then
-           call ed_chi2_fitgf(comm,delta,bath,ispin=2)
+           call ed_chi2_fitgf(comm,Weiss,bath,ispin=2)
         else
            call ed_spin_symmetrize_bath(bath,save=.true.)
         endif
      case("nonsu2")
-        call ed_chi2_fitgf(comm,delta,bath)
+        call ed_chi2_fitgf(comm,Weiss,bath)
      end select
 
-     !MIXING:
-     if(iloop>1)Bath = wmixing*Bath + (1.d0-wmixing)*Bath_
-     Bath_=Bath
+     if(.not.mixG0)then
+        if(iloop>1)Bath = wmixing*Bath + (1.d0-wmixing)*Bath_
+        Bath_=Bath
+     endif
      !
 
-     !there is no need to perform these action under if(master).
-     !these are MPI-aware
-     converged = check_convergence(delta(1,1,1,1,:),dmft_error,nsuccess,nloop)
+     !Check convergence (if required change chemical potential)
+     ! Gtest=zero
+     ! do ispin=1,Nspin
+     !    do iorb=1,Norb
+     !       Gtest=Gtest+Weiss(ispin,ispin,iorb,iorb,:)/Norb/Nspin
+     !    enddo
+     ! enddo
+     Gtest=Weiss(1,1,1,1,:)
+     converged = check_convergence(Gtest,dmft_error,nsuccess,nloop)
      if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
 
      call end_loop
