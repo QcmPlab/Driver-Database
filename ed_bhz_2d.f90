@@ -290,21 +290,17 @@ contains
        !
        call set_sigmaBHZ()
        !
-       Npts = 8
+       Npts = 4
        Lk=(Npts-1)*Nkpath
-       allocate(kpath(Npts,3))
-       kpath(1,:)=kpoint_m1
-       kpath(2,:)=kpoint_x2
-       kpath(3,:)=kpoint_gamma
-       kpath(4,:)=kpoint_x1
-       kpath(5,:)=kpoint_m2
-       kpath(6,:)=kpoint_r
-       kpath(7,:)=kpoint_x3
-       kpath(8,:)=kpoint_gamma
+       allocate(kpath(Npts,2))
+       kpath(1,:)=kpoint_gamma
+       kpath(2,:)=kpoint_x1
+       kpath(3,:)=kpoint_m1
+       kpath(4,:)=kpoint_gamma
        call set_sigmaBHZ(sigma)
        call TB_solve_model(hk_bhz,Nso,kpath,Nkpath,&
-            colors_name=[red1,blue1,red1,blue1],&
-            points_name=[character(len=20) :: "M","X","G","X1","A","R","Z","G"],&
+            colors_name=[red,blue,red,blue],&
+            points_name=[character(len=20) :: "{\Symbol G}","X","M","{\Symbol G}"],&
             file="Eig_Htop.ed")
     endif
   end subroutine solve_hk_topological
