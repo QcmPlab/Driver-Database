@@ -159,10 +159,10 @@ program ed_kanemele
      	call ed_solve(comm,Bath(1,:),Hloc(1,:,:,:,:))
      	call ed_get_sigma_matsubara(Smats(1,:,:,:,:,:))
      	call ed_get_sigma_realaxis(Sreal(1,:,:,:,:,:))
-     	Smats(2,2,2,:,:,:) = -Smats(1,1,1,:,:,:) !S(iw)_{B,dw,dw} = -S(iw)_{A,up,up}
-     	Smats(2,1,1,:,:,:) = -Smats(1,2,2,:,:,:) !S(iw)_{B,up,up} = -S(iw)_{A,dw,dw}
-     	Sreal(2,2,2,:,:,:) = -Sreal(1,1,1,:,:,:) !S(w)_{B,dw,dw}  = -S(w)_{A,up,up}
-     	Sreal(2,1,1,:,:,:) = -Sreal(1,2,2,:,:,:) !S(w)_{B,up,up}  = -S(w)_{A,dw,dw}
+     	Smats(2,2,2,:,:,:) = Smats(1,1,1,:,:,:) !S(iw)_{B,dw,dw} = S(iw)_{A,up,up}
+     	Smats(2,1,1,:,:,:) = Smats(1,2,2,:,:,:) !S(iw)_{B,up,up} = S(iw)_{A,dw,dw}
+     	Sreal(2,2,2,:,:,:) = Sreal(1,1,1,:,:,:) !S(w)_{B,dw,dw}  = S(w)_{A,up,up}
+     	Sreal(2,1,1,:,:,:) = Sreal(1,2,2,:,:,:) !S(w)_{B,up,up}  = S(w)_{A,dw,dw}
      	if(master)write(*,*) "*******************************"
      	if(master)write(*,*) "*                             *"
      	if(master)write(*,*) "*  !Enforcing Neel symmetry!  *"
