@@ -16,27 +16,28 @@ program ed_bhz
   complex(8),allocatable                      :: Gmats(:,:,:,:,:),Greal(:,:,:,:,:)
   complex(8),allocatable,dimension(:)         :: Gtest
   !hamiltonian input:
-  complex(8),allocatable                      :: Hk(:,:,:),bhzHloc(:,:),sigmaBHZ(:,:),Zmats(:,:)
+  complex(8),allocatable                      :: Hk(:,:,:),bhzHloc(:,:),sigmaBHZ(:,:),Zmats(:,:),impRho(:,:)
   real(8),allocatable                         :: Wtk(:)
   real(8),allocatable                         :: kxgrid(:),kygrid(:)
   integer,allocatable                         :: ik2ix(:),ik2iy(:)
   !variables for the model:
   integer                                     :: Nk,Nkpath
   real(8)                                     :: mh,lambda,wmixing,akrange,rh
+  character(len=30)                           :: Params
   character(len=16)                           :: finput
   character(len=32)                           :: hkfile
   logical                                     :: spinsym,usez,mixG0
   !
   real(8),dimension(2)                        :: Eout
   real(8),allocatable                         :: dens(:)
-  complex(8),dimension(4,4)                   :: Gamma1,Gamma2,Gamma5,GammaS
-  complex(8),dimension(4,4)                   :: GammaN,GammaTz,GammaSz,GammaRz
+  complex(8),dimension(4,4)                   :: Gamma1,Gamma2,Gamma5,GammaN
   complex(8),dimension(4,4)                   :: GammaE0,GammaEx,GammaEy,GammaEz
+  complex(8),dimension(4,4)                   :: GammaR0,GammaRx,GammaRy,GammaRz
   real(8),dimension(:),allocatable            :: lambdasym_vector
   complex(8),dimension(:,:,:,:,:),allocatable :: Hsym_basis
   !MPI Vars:
   integer                                     :: irank,comm,rank,size2,ierr
-  logical                                     :: master
+  logical                                     :: master,getbands
 
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -47,7 +48,9 @@ program ed_bhz
 
 
   !Parse additional variables && read Input && read H(k)^4x4
-  call parse_cmd_variable(finput,"FINPUT",default='inputED_BHZ.in')
+  call parse_cmd_variable(finput,"FINPUT",default='inputED_BHZ.in')  
+  call parse_input_variable(Params,"Params",finput,default="E0EzEx",&
+       comment="Ex; EzEx; E0Ex; ExEy; E0Ez; E0EzEx; E0EzExEy")
   call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in")
   call parse_input_variable(nk,"NK",finput,default=100)
   call parse_input_variable(nkpath,"NKPATH",finput,default=500)
@@ -57,6 +60,7 @@ program ed_bhz
   call parse_input_variable(mixG0,"mixG0",finput,default=.false.)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.d0)
   call parse_input_variable(usez,"USEZ",finput,default=.false.)
+  call parse_input_variable(getbands,"GETBANDS",finput,default=.false.)
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -87,18 +91,17 @@ program ed_bhz
   gamma1=kron_pauli( pauli_sigma_z, pauli_tau_x)
   gamma2=kron_pauli( pauli_sigma_0,-pauli_tau_y)
   gamma5=kron_pauli( pauli_sigma_0, pauli_tau_z)
-  gammaS=kron_pauli( pauli_sigma_z, pauli_tau_0)
-  gamma5=kron_pauli( pauli_sigma_0, pauli_tau_z )
-  !
-  gammaN=kron_pauli( pauli_sigma_0, pauli_tau_0 )
-  gammaTz=kron_pauli( pauli_sigma_0, pauli_tau_z )
-  gammaSz=kron_pauli( pauli_sigma_z, pauli_tau_0 )
-  gammaRz=kron_pauli( pauli_sigma_z, pauli_tau_z )
+  gammaN=kron_pauli( pauli_sigma_0, pauli_tau_0)
   !
   gammaE0=kron_pauli( pauli_sigma_0, pauli_tau_x )
   gammaEx=kron_pauli( pauli_sigma_x, pauli_tau_x )
   gammaEy=kron_pauli( pauli_sigma_y, pauli_tau_x )
   gammaEz=kron_pauli( pauli_sigma_z, pauli_tau_x )
+  !
+  gammaR0=kron_pauli( pauli_sigma_0, pauli_tau_y )
+  gammaRx=kron_pauli( pauli_sigma_x, pauli_tau_y )
+  gammaRy=kron_pauli( pauli_sigma_y, pauli_tau_y )
+  gammaRz=kron_pauli( pauli_sigma_z, pauli_tau_y )
 
   !Buil the Hamiltonian on a grid or on  path
   call set_sigmaBHZ()
@@ -107,27 +110,76 @@ program ed_bhz
   print_mode=1
   if(ed_mode=="nonsu2")print_mode=4
 
+  if(getbands)then
+     call read_array("Smats",Smats)
+     call solve_hk_topological(so2j(Smats(:,:,:,:,1)))
+     call finalize_MPI()
+     stop
+  endif
+
   !Setup solver
   if(bath_type=="replica")then
-     !Setup HLOC symmetries
-     allocate(lambdasym_vector(4))
-     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
-     !
-     lambdasym_vector(1)=Mh
-     lambdasym_vector(2:)=sb_field
-     Hsym_basis(:,:,:,:,1)=j2so(Gamma5)
-     Hsym_basis(:,:,:,:,2)=j2so(GammaE0)
-     Hsym_basis(:,:,:,:,3)=j2so(GammaEx)
-     Hsym_basis(:,:,:,:,4)=j2so(GammaEz)
-     ! Hsym_basis(:,:,:,:,5)=j2so(GammaEy)
+     select case(trim(Params))
+     case default
+        stop "Params not in [Ex; EzEx; E0Ex; ExEy; E0Ez; E0EzEx; E0EzExEy]"
+     case("Ex")
+        allocate(lambdasym_vector(2))
+        allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,2))
+        Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
+        Hsym_basis(:,:,:,:,2)=j2so(GammaEx) ;lambdasym_vector(2)=-sb_field
 
+     case("EzEx")
+        allocate(lambdasym_vector(3))
+        allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+        Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
+        Hsym_basis(:,:,:,:,2)=j2so(GammaEz) ;lambdasym_vector(2)=sb_field
+        Hsym_basis(:,:,:,:,3)=j2so(GammaEx) ;lambdasym_vector(3)=-sb_field
+
+     case("E0Ex")
+        allocate(lambdasym_vector(3))
+        allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+        Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
+        Hsym_basis(:,:,:,:,2)=j2so(GammaE0) ;lambdasym_vector(2)=sb_field
+        Hsym_basis(:,:,:,:,3)=j2so(GammaEx) ;lambdasym_vector(3)=-sb_field
+
+     case("ExEy")
+        allocate(lambdasym_vector(3))
+        allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+        Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
+        Hsym_basis(:,:,:,:,2)=j2so(GammaEx) ;lambdasym_vector(2)=-sb_field
+        Hsym_basis(:,:,:,:,3)=j2so(GammaEy) ;lambdasym_vector(3)=sb_field
+
+     case("E0Ez")
+        allocate(lambdasym_vector(3))
+        allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+        Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
+        Hsym_basis(:,:,:,:,2)=j2so(GammaE0) ;lambdasym_vector(2)=sb_field
+        Hsym_basis(:,:,:,:,3)=j2so(GammaEz) ;lambdasym_vector(3)=sb_field
+
+     case("E0EzEx")
+        allocate(lambdasym_vector(4))
+        allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
+        Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
+        Hsym_basis(:,:,:,:,2)=j2so(GammaE0) ;lambdasym_vector(2)=sb_field
+        Hsym_basis(:,:,:,:,3)=j2so(GammaEz) ;lambdasym_vector(3)=sb_field
+        Hsym_basis(:,:,:,:,4)=j2so(GammaEx) ;lambdasym_vector(4)=-sb_field
+
+     case("E0EzExEy")
+        Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
+        Hsym_basis(:,:,:,:,2)=j2so(GammaE0) ;lambdasym_vector(2)=sb_field
+        Hsym_basis(:,:,:,:,3)=j2so(GammaEz) ;lambdasym_vector(3)=sb_field
+        Hsym_basis(:,:,:,:,4)=j2so(GammaEx) ;lambdasym_vector(4)=-sb_field
+        Hsym_basis(:,:,:,:,5)=j2so(GammaEy) ;lambdasym_vector(5)=sb_field
+
+     end select
 
 
      call ed_set_Hloc(Hsym_basis,lambdasym_vector)
      Nb=ed_get_bath_dimension(Hsym_basis)
      allocate(Bath(Nb))
      allocate(Bath_(Nb))
-     call ed_init_solver(comm,bath)    
+     call ed_init_solver(comm,bath)
+
   else     
      Nb=ed_get_bath_dimension()
      allocate(Bath(Nb))
@@ -200,8 +252,6 @@ program ed_bhz
   enddo
 
 
-
-
   call dmft_gloc_realaxis(Hk,Greal,Sreal)
   call dmft_print_gf_realaxis(Greal,"Gloc",iprint=print_mode)
 
@@ -209,6 +259,8 @@ program ed_bhz
 
   call solve_hk_topological(so2j(Smats(:,:,:,:,1)))
 
+  call save_array("Smats",Smats)
+  call save_array("Sreal",Sreal)
 
   call finalize_MPI()
 
@@ -292,7 +344,7 @@ contains
        !
        Npts = 4
        Lk=(Npts-1)*Nkpath
-       allocate(kpath(Npts,2))
+       allocate(kpath(Npts,3))
        kpath(1,:)=kpoint_gamma
        kpath(2,:)=kpoint_x1
        kpath(3,:)=kpoint_m1
